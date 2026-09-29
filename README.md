@@ -2,7 +2,7 @@
 
 一个 Python 命令行代码助手，使用支持 Function Calling 的 LLM 分析代码、选择工具并生成中文审查报告。对应作业的“代码审查 Agent”方向。
 
-## 快速体验
+## 无 API Key 体验
 
 需要 Python 3.10 或以上版本，仅使用标准库，无需安装第三方包。在项目目录运行：
 
@@ -12,24 +12,32 @@ python -m code_review_agent --demo --verbose
 
 若 Windows 的 Python 命令为 `py`，把上述 `python` 替换为 `py -3`。
 
-离线演示使用固定的模型响应，实际调用文件读取和 AST 工具检查 `examples/buggy.py`，展示共享默认参数、动态执行、除零和裸 except 风险。它不是 LLM，不理解任意问题；真实模型模式见下一节。
+`--demo` 不需要 API Key，也不会访问网络。它使用固定的模型响应，实际调用文件读取和 AST 工具检查 `examples/buggy.py`，展示共享默认参数、动态执行、除零和裸 except 风险。它不是 LLM，不理解任意问题；真实 DeepSeek 模式见下一节。
 
-## 接入真实模型
+## 接入真实 DeepSeek API
 
-使用提供 Chat Completions 和 `tools`/`tool_calls` 功能的模型服务。根据服务控制台填写完整基础地址和可用模型名。以 PowerShell 为例：
+在 [DeepSeek 开放平台](https://platform.deepseek.com/)创建 API Key。程序默认使用官方地址 `https://api.deepseek.com`、模型 `deepseek-flash` 和非思考模式，因此只需在当前 PowerShell 设置 Key：
 
 ```powershell
-$env:LLM_API_KEY = '替换为你的 API Key'
-$env:LLM_BASE_URL = '替换为服务商的兼容接口基础地址，以 /v1 结尾'
-$env:LLM_MODEL = '替换为支持工具调用的模型名'
+$env:DEEPSEEK_API_KEY = Read-Host '请输入 DeepSeek API Key'
 python -m code_review_agent --verbose '请审查 examples/buggy.py，给出问题位置、触发条件和修复建议'
 ```
 
-基础地址不包含 `/chat/completions`，程序自动追加该路径。不同地区的地址、Key 和模型权限可能不同，需使用同一服务区域的配置。环境变量缺失会报错，不会自动切换成演示模式。`.env.example` 仅供参考，程序不会自动加载 `.env`。
+环境变量仅对当前 PowerShell 窗口有效。不要把真实 Key 写入源码、`.env.example`、命令参数或提交到 GitHub。程序也兼容原有的 `LLM_API_KEY` 变量，但 `DEEPSEEK_API_KEY` 优先。
 
-接口实现参考：[阿里云 Function Calling 官方文档](https://www.alibabacloud.com/help/en/model-studio/qwen-function-calling)。采用标准的工具描述、assistant 工具请求、带 `tool_call_id` 的 tool 结果，以及再次请求模型的循环。
+可选配置：
 
-读取的源码和会话会发送给你配置的模型服务。请仅选择适合发送的项目目录；API Key 不写入源码或报告。
+```powershell
+$env:LLM_BASE_URL = 'https://api.deepseek.com'
+$env:LLM_MODEL = 'deepseek-flash'       # 也可使用账号可用的其他模型
+$env:LLM_THINKING = 'disabled'          # enabled 或 disabled
+```
+
+默认 `disabled` 更快、费用更可控，也最适合课堂演示。设置为 `enabled` 时，程序会保留 DeepSeek 返回的 `reasoning_content` 并在后续工具请求中原样回传，但不会在终端显示这部分内容。
+
+基础地址不要包含 `/chat/completions`，程序会自动追加。没有 Key 时程序会明确报错，不会悄悄伪装成真实模型；请显式添加 `--demo` 使用离线服务。`.env.example` 仅供参考，程序不会自动加载 `.env`。
+
+实现遵循 DeepSeek 官方的 [首次 API 调用](https://api-docs.deepseek.com/guides/harness)、[工具调用](https://api-docs.deepseek.com/guides/tool_calls/)和[思考模式](https://api-docs.deepseek.com/guides/thinking_mode/)说明。读取的源码和会话会发送到 DeepSeek，请仅审查适合发送的项目。
 
 ## 使用方式
 
@@ -54,11 +62,11 @@ python -m unittest discover -s tests -v
 | 作业要求 | 实现 |
 | --- | --- |
 | 输入、模型决策、工具调用、输出 | `ReviewAgent.ask` 的受限循环 |
-| LLM 调用与 Prompt 设计 | 可配置模型接口和中文审查系统提示 |
+| LLM 调用与 Prompt 设计 | DeepSeek Chat Completions、工具调用和中文审查系统提示 |
 | 至少一个工具 | `list_files`、`read_file`、`analyze_python` |
 | CLI 交互 | 单次提问、多轮聊天、报告导出 |
 | 上下文记忆 | 保存完整的工具调用与结果配对 |
-| 错误处理与重试 | 网络及部分 HTTP 错误最多重试 2 次，工具错误返回模型 |
+| 错误处理与重试 | 网络及部分 HTTP 错误最多重试 2 次，显示安全截断后的服务错误 |
 | 文档与验证 | README、Design.md、标准库单元测试 |
 
 AST 检查支持 Python 语法、可变字面量默认参数、裸 except、直接 `eval/exec` 调用、字面量零除数。它是有限的启发式检查，存在误报和漏报，不能代替执行测试或人工审查。其他语言通过读取源码交给真实 LLM 审查。

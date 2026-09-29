@@ -99,6 +99,22 @@ class ToolTests(unittest.TestCase):
         agent.reset()
         self.assertEqual(agent.turns, [])
 
+    def test_agent_preserves_deepseek_reasoning_content(self):
+        tool_reply = call()
+        tool_reply["reasoning_content"] = "工具选择依据"
+        client = ScriptedClient([
+            tool_reply,
+            {"role": "assistant", "content": "发现问题", "reasoning_content": "审查依据"},
+            {"role": "assistant", "content": "后续回答", "reasoning_content": "追问依据"},
+        ])
+        agent = ReviewAgent(client, self.tools)
+        agent.ask("审查")
+        self.assertTrue(any(m.get("reasoning_content") == "工具选择依据"
+                            for m in client.requests[1]))
+        agent.ask("继续")
+        self.assertTrue(any(m.get("reasoning_content") == "审查依据"
+                            for m in client.requests[2]))
+
     def test_tool_error_is_returned_to_model(self):
         client = ScriptedClient([call(args="invalid"), {"role": "assistant", "content": "调整参数"}])
         self.assertEqual(ReviewAgent(client, self.tools).ask("审查"), "调整参数")
@@ -151,12 +167,46 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(delays, [1])
         self.assertEqual(json.loads(opener.requests[0].data)["tool_choice"], "auto")
 
+    def test_deepseek_payload_and_reasoning_content(self):
+        response = json.dumps({"choices": [{"message": {
+            "role": "assistant", "content": None, "reasoning_content": "依据",
+            "tool_calls": []}}]}).encode()
+        opener = FakeOpener([response])
+        client = ChatClient("test", "https://api.deepseek.com", "deepseek-flash",
+                            thinking="enabled", opener=opener)
+        message = client.complete([], [])
+        payload = json.loads(opener.requests[0].data)
+        self.assertEqual(payload["thinking"], {"type": "enabled"})
+        self.assertEqual(message["reasoning_content"], "依据")
+
+    def test_deepseek_environment_defaults(self):
+        with patch.dict("os.environ", {"DEEPSEEK_API_KEY": "test-key"}, clear=True), \
+                patch("code_review_agent.llm.urllib.request.build_opener",
+                      return_value=FakeOpener([])):
+            client = ChatClient.from_env()
+        self.assertEqual(client.url, "https://api.deepseek.com/chat/completions")
+        self.assertEqual(client.model, "deepseek-flash")
+        self.assertEqual(client.thinking, "disabled")
+
+    def test_invalid_thinking_mode(self):
+        with self.assertRaisesRegex(ValueError, "enabled 或 disabled"):
+            ChatClient("test", "https://api.deepseek.com", "deepseek-flash", thinking="auto")
+
     def test_auth_error_no_retry(self):
         opener = FakeOpener([urllib.error.HTTPError("https://example.com", 401, "auth", {}, None)])
         client = ChatClient("test", "https://example.com/v1", "model", opener=opener)
         with self.assertRaisesRegex(ModelError, "401"):
             client.complete([], [])
         self.assertEqual(len(opener.requests), 1)
+
+    def test_http_error_includes_provider_message(self):
+        error = urllib.error.HTTPError(
+            "https://api.deepseek.com", 400, "bad request", {},
+            io.BytesIO(b'{"error":{"message":"reasoning_content is required"}}'))
+        client = ChatClient("test", "https://api.deepseek.com", "deepseek-flash",
+                            opener=FakeOpener([error]))
+        with self.assertRaisesRegex(ModelError, "reasoning_content is required"):
+            client.complete([], [])
 
     def test_network_retry_exhaustion(self):
         opener = FakeOpener([TimeoutError()] * 3)

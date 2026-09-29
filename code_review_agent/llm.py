@@ -1,4 +1,4 @@
-"""Standard-library client for a Chat Completions compatible model service."""
+"""Standard-library client for DeepSeek's OpenAI-compatible Chat API."""
 import json
 import os
 import time
@@ -17,28 +17,55 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 class ChatClient:
-    def __init__(self, api_key, base_url, model, timeout=60, retries=2, opener=None, sleep=time.sleep):
+    def __init__(self, api_key, base_url, model, thinking="disabled", timeout=60,
+                 retries=2, opener=None, sleep=time.sleep):
         parsed = urllib.parse.urlsplit(base_url)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.query or parsed.fragment or parsed.username:
             raise ValueError("LLM_BASE_URL 必须是无认证信息、查询参数或片段的 HTTP(S) 地址")
         if parsed.scheme != "https" and parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
             raise ValueError("远程模型服务必须使用 HTTPS")
         if not api_key.strip() or not model.strip():
-            raise ValueError("请设置 LLM_API_KEY 和 LLM_MODEL")
+            raise ValueError("请设置 DEEPSEEK_API_KEY（或 LLM_API_KEY）；无 Key 时请使用 --demo")
+        thinking = thinking.strip().lower()
+        if thinking not in {"enabled", "disabled"}:
+            raise ValueError("LLM_THINKING 只能是 enabled 或 disabled")
         self.api_key, self.model = api_key, model
         self.url = base_url.rstrip("/") + "/chat/completions"
+        self.is_deepseek = parsed.hostname == "api.deepseek.com" or parsed.hostname.endswith(".deepseek.com")
+        self.thinking = thinking
         self.timeout, self.retries = timeout, retries
         self.opener = opener or urllib.request.build_opener(NoRedirect())
         self.sleep = sleep
 
     @classmethod
     def from_env(cls):
-        return cls(os.getenv("LLM_API_KEY", ""), os.getenv("LLM_BASE_URL", ""),
-                   os.getenv("LLM_MODEL", ""))
+        api_key = os.getenv("DEEPSEEK_API_KEY") or os.getenv("LLM_API_KEY", "")
+        return cls(api_key, os.getenv("LLM_BASE_URL", "https://api.deepseek.com"),
+                   os.getenv("LLM_MODEL", "deepseek-flash"),
+                   os.getenv("LLM_THINKING", "disabled"))
+
+    def _http_error_detail(self, exc):
+        try:
+            raw = exc.read(16 * 1024 + 1)
+            if not raw or len(raw) > 16 * 1024:
+                return ""
+            payload = json.loads(raw)
+            detail = payload.get("error", {}).get("message", "")
+            if not isinstance(detail, str):
+                return ""
+            detail = " ".join(detail.split()).replace(self.api_key, "[REDACTED]")
+            return detail[:500]
+        except (AttributeError, UnicodeDecodeError, ValueError, TypeError):
+            return ""
 
     def complete(self, messages, tools):
-        payload = json.dumps({"model": self.model, "messages": messages,
-                              "tools": tools, "tool_choice": "auto"}).encode("utf-8")
+        request_body = {"model": self.model, "messages": messages,
+                        "tools": tools, "tool_choice": "auto"}
+        # DeepSeek enables thinking by default. Make the selected mode explicit so
+        # tool-call continuation behavior remains stable across API releases.
+        if self.is_deepseek:
+            request_body["thinking"] = {"type": self.thinking}
+        payload = json.dumps(request_body).encode("utf-8")
         for attempt in range(self.retries + 1):
             request = urllib.request.Request(self.url, data=payload, headers={
                 "Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"})
@@ -54,12 +81,17 @@ class ChatClient:
                 message = choice["message"]
                 if not isinstance(message, dict) or message.get("role") != "assistant":
                     raise ValueError("invalid message")
-                return {k: message[k] for k in ("role", "content", "tool_calls") if k in message}
+                # DeepSeek requires reasoning_content to be sent back verbatim on
+                # later requests when thinking mode and tools are used.
+                return {k: message[k] for k in ("role", "content", "reasoning_content", "tool_calls")
+                        if k in message}
             except urllib.error.HTTPError as exc:
                 retryable = exc.code in {408, 429, 500, 502, 503, 504}
+                detail = self._http_error_detail(exc)
                 exc.close()
                 if not retryable or attempt == self.retries:
-                    raise ModelError(f"模型服务返回 HTTP {exc.code}，请检查配置、额度或服务状态") from None
+                    suffix = f"：{detail}" if detail else "，请检查配置、额度或服务状态"
+                    raise ModelError(f"模型服务返回 HTTP {exc.code}{suffix}") from None
             except (urllib.error.URLError, TimeoutError, ConnectionError):
                 if attempt == self.retries:
                     raise ModelError("模型网络请求失败或超时，请检查网络和服务地址") from None

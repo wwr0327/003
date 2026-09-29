@@ -64,7 +64,10 @@ class ReviewAgent:
             content = message.get("content")
             if not isinstance(content, str) or not content.strip():
                 raise ModelError("模型没有返回有效文本")
-            messages.append({"role": "assistant", "content": content})
+            final_message = {"role": "assistant", "content": content}
+            if "reasoning_content" in message:
+                final_message["reasoning_content"] = message["reasoning_content"]
+            messages.append(final_message)
             self.turns.append(messages[start:])
             self.turns = self.turns[-self.memory_turns:]
             # Trim only complete turns so tool call/result pairs remain intact.
