@@ -79,5 +79,4 @@ code_review_agent/
 examples/buggy.py  故意存在缺陷的样例
 tests/test_agent.py
 Design.md         架构与取舍
-DEMO.md           一分钟演示脚本
 ```
