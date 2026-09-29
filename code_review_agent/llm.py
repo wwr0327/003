@@ -5,6 +5,33 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
+
+
+ENV_KEYS = {"DEEPSEEK_API_KEY", "LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL", "LLM_THINKING"}
+
+
+def load_env_file(path=".env"):
+    """Load recognized settings from a small local .env without overriding the shell."""
+    env_path = Path(path)
+    try:
+        if env_path.stat().st_size > 16 * 1024:
+            raise ValueError(".env 文件过大")
+        lines = env_path.read_text(encoding="utf-8-sig").splitlines()
+    except FileNotFoundError:
+        return
+    for number, raw_line in enumerate(lines, 1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            raise ValueError(f".env 第 {number} 行缺少等号")
+        name, value = (part.strip() for part in line.split("=", 1))
+        if name not in ENV_KEYS:
+            continue
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        os.environ.setdefault(name, value)
 
 
 class ModelError(RuntimeError):
@@ -39,6 +66,7 @@ class ChatClient:
 
     @classmethod
     def from_env(cls):
+        load_env_file()
         api_key = os.getenv("DEEPSEEK_API_KEY") or os.getenv("LLM_API_KEY", "")
         return cls(api_key, os.getenv("LLM_BASE_URL", "https://api.deepseek.com"),
                    os.getenv("LLM_MODEL", "deepseek-flash"),

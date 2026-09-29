@@ -7,7 +7,19 @@ from .llm import ChatClient, ModelError
 from .tools import WorkspaceTools
 
 
+def _configure_utf8_console():
+    """Prevent model output such as emoji from crashing a legacy Windows console."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure:
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                pass
+
+
 def main(argv=None):
+    _configure_utf8_console()
     parser = argparse.ArgumentParser(description="Homework 1 代码审查 Agent")
     parser.add_argument("question", nargs="?", help="省略时进入多轮交互")
     parser.add_argument("--root", default=".", help="允许读取的工作目录")

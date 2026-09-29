@@ -16,14 +16,15 @@ python -m code_review_agent --demo --verbose
 
 ## 接入真实 DeepSeek API
 
-在 [DeepSeek 开放平台](https://platform.deepseek.com/)创建 API Key。程序默认使用官方地址 `https://api.deepseek.com`、模型 `deepseek-flash` 和非思考模式，因此只需在当前 PowerShell 设置 Key：
+在 [DeepSeek 开放平台](https://platform.deepseek.com/)创建 API Key。复制配置示例并在本地 `.env` 中填写 Key：
 
 ```powershell
-$env:DEEPSEEK_API_KEY = Read-Host '请输入 DeepSeek API Key'
+Copy-Item .env.example .env
+notepad .env
 python -m code_review_agent --verbose '请审查 examples/buggy.py，给出问题位置、触发条件和修复建议'
 ```
 
-环境变量仅对当前 PowerShell 窗口有效。不要把真实 Key 写入源码、`.env.example`、命令参数或提交到 GitHub。程序也兼容原有的 `LLM_API_KEY` 变量，但 `DEEPSEEK_API_KEY` 优先。
+程序启动时自动读取当前目录中的 `.env`。该文件已被 `.gitignore` 排除。不要把真实 Key 写入 `.env.example`、源码、命令参数或提交到 GitHub。程序也兼容原有的 `LLM_API_KEY` 变量，但 `DEEPSEEK_API_KEY` 优先；PowerShell 中已经设置的环境变量优先于 `.env`。
 
 可选配置：
 
@@ -35,7 +36,7 @@ $env:LLM_THINKING = 'disabled'          # enabled 或 disabled
 
 默认 `disabled` 更快、费用更可控，也最适合课堂演示。设置为 `enabled` 时，程序会保留 DeepSeek 返回的 `reasoning_content` 并在后续工具请求中原样回传，但不会在终端显示这部分内容。
 
-基础地址不要包含 `/chat/completions`，程序会自动追加。没有 Key 时程序会明确报错，不会悄悄伪装成真实模型；请显式添加 `--demo` 使用离线服务。`.env.example` 仅供参考，程序不会自动加载 `.env`。
+基础地址不要包含 `/chat/completions`，程序会自动追加。没有 Key 时程序会明确报错，不会悄悄伪装成真实模型；请显式添加 `--demo` 使用离线服务。
 
 实现遵循 DeepSeek 官方的 [首次 API 调用](https://api-docs.deepseek.com/guides/harness)、[工具调用](https://api-docs.deepseek.com/guides/tool_calls/)和[思考模式](https://api-docs.deepseek.com/guides/thinking_mode/)说明。读取的源码和会话会发送到 DeepSeek，请仅审查适合发送的项目。
 
@@ -74,6 +75,8 @@ AST 检查支持 Python 语法、可变字面量默认参数、裸 except、直�
 工具只读，不执行用户代码，不修改源码。默认禁止工作目录外路径、隐藏文件及常见依赖目录，解析符号链接后再次检查边界。只读取白名单扩展名的 UTF-8 文本。单文件不超过 128 KiB，读取每次最多 200 行且 16000 字符，列文件最多 200 条，AST 最多输出 100 条发现。
 
 这不是用于对抗恶意本地进程的操作系统沙箱。若文件正被其他进程替换，路径检查和读取间仍可能存在竞态。使用稳定、可信的本地项目副本。
+
+程序将标准输出和错误输出设置为 UTF-8，避免 DeepSeek 回答中的 emoji 或特殊字符导致旧版 Windows 控制台编码异常。
 
 ## 文件结构
 

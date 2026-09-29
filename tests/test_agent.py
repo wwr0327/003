@@ -8,7 +8,7 @@ import urllib.error
 
 from code_review_agent.agent import ReviewAgent
 from code_review_agent.demo import DemoClient
-from code_review_agent.llm import ChatClient, ModelError
+from code_review_agent.llm import ChatClient, ModelError, load_env_file
 from code_review_agent.tools import WorkspaceTools
 from code_review_agent.__main__ import main
 
@@ -182,11 +182,24 @@ class ClientTests(unittest.TestCase):
     def test_deepseek_environment_defaults(self):
         with patch.dict("os.environ", {"DEEPSEEK_API_KEY": "test-key"}, clear=True), \
                 patch("code_review_agent.llm.urllib.request.build_opener",
-                      return_value=FakeOpener([])):
+                      return_value=FakeOpener([])), \
+                patch("code_review_agent.llm.load_env_file"):
             client = ChatClient.from_env()
         self.assertEqual(client.url, "https://api.deepseek.com/chat/completions")
         self.assertEqual(client.model, "deepseek-flash")
         self.assertEqual(client.thinking, "disabled")
+
+    def test_load_env_file_without_overriding_shell(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env_file = Path(directory) / ".env"
+            env_file.write_text(
+                "DEEPSEEK_API_KEY=file-key\nLLM_MODEL=deepseek-flash\nIGNORED=value\n",
+                encoding="utf-8")
+            with patch.dict("os.environ", {"DEEPSEEK_API_KEY": "shell-key"}, clear=True):
+                load_env_file(env_file)
+                self.assertEqual(__import__("os").environ["DEEPSEEK_API_KEY"], "shell-key")
+                self.assertEqual(__import__("os").environ["LLM_MODEL"], "deepseek-flash")
+                self.assertNotIn("IGNORED", __import__("os").environ)
 
     def test_invalid_thinking_mode(self):
         with self.assertRaisesRegex(ValueError, "enabled 或 disabled"):

@@ -23,7 +23,7 @@ CLI 输入
 
 真实客户端和演示客户端都实现 `complete(messages, tools)`。因此演示经过同一个 Agent 和实际工具，而非直接打印预写报告。演示仍不具有语言理解能力，只处理固定样例。
 
-真实客户端默认使用 `https://api.deepseek.com`、`deepseek-flash` 和非思考模式。用户可通过环境变量开启思考模式。开启后，客户端保存 DeepSeek 返回的 `reasoning_content`，Agent 在工具调用和后续对话中完整回传，以满足 DeepSeek 的连续工具调用协议。该内容不在 CLI 中展示。
+真实客户端默认使用 `https://api.deepseek.com`、`deepseek-flash` 和非思考模式。启动时读取当前目录下被 Git 忽略的 `.env`，已有进程环境变量优先。用户可通过环境变量开启思考模式。开启后，客户端保存 DeepSeek 返回的 `reasoning_content`，Agent 在工具调用和后续对话中完整回传，以满足 DeepSeek 的连续工具调用协议。该内容不在 CLI 中展示。CLI 将输出流配置为 UTF-8，避免模型输出特殊字符时在 Windows 上崩溃。
 
 ## Prompt 与可信边界
 
